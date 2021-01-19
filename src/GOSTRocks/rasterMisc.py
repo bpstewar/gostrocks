@@ -17,7 +17,7 @@ from shapely import wkt
 from affine import Affine
 from rasterio import features
 from rasterio.mask import mask
-from rasterio.features import rasterize
+from rasterio.features import rasterize, MergeAlg
 from rasterio.warp import reproject, Resampling
 from osgeo import gdal
 
@@ -37,6 +37,7 @@ def clipRaster(inR, inD, outFile):
     '''
     if inD.crs != inR.crs:
         inD = inD.to_crs(inR.crs)
+        inD = inD.buffer(0)
     out_meta = inR.meta.copy()
     def getFeatures(gdf):
         #Function to parse features from GeoDataFrame in such a manner that rasterio wants them
@@ -52,7 +53,7 @@ def clipRaster(inR, inD, outFile):
         dest.write(out_img)
 
 
-def rasterizeDataFrame(inD, outFile, idField='', templateRaster='', nCells=0, res=0):
+def rasterizeDataFrame(inD, outFile, idField='', templateRaster='', nCells=0, res=0, mergeAlg="REPLACE"):
     ''' Convert input geopandas dataframe into a raster file
         inD = gpd.read_file(r"C:\Temp\TFRecord\Data\Training Data\test3_training.shp")
         templateRaster=r"C:\Temp\TFRecord\Data\Training Data\test3.tif"
@@ -76,9 +77,18 @@ def rasterizeDataFrame(inD, outFile, idField='', templateRaster='', nCells=0, re
 
     #Set VALUE field equal to idField
     inD['VALUE'] = 1
+    inD['VALUE'] = inD['VALUE'].astype('int16')
     if idField != '':
         inD['VALUE'] = inD[idField]
 
+    # set merge algorithm for overlapping features
+    if mergeAlg == "REPLACE":
+        mAlg = MergeAlg.replace
+    elif mergeAlg == "ADD":
+        mAlg = MergeAlg.add
+    else:
+        raise(ValueError("MergeAlg must be one of REPLACE or ADD"))
+        
     if templateRaster != '':
         inR = rasterio.open(templateRaster)
         cMeta = inR.meta.copy()
@@ -102,7 +112,7 @@ def rasterizeDataFrame(inD, outFile, idField='', templateRaster='', nCells=0, re
         cMeta = {'count':1, 'crs': inD.crs, 'dtype':inD['VALUE'].dtype, 'driver':'GTiff',
                  'transform':nTransform, 'height':height, 'width':width}
     shapes = ((row.geometry,row.VALUE) for idx, row in inD.iterrows())
-    burned = features.rasterize(shapes=shapes, out_shape=(cMeta['height'], cMeta['width']), transform=nTransform, dtype=cMeta['dtype'])
+    burned = features.rasterize(shapes=shapes, out_shape=(cMeta['height'], cMeta['width']), transform=nTransform, dtype=cMeta['dtype'], merge_alg=mAlg)
     with rasterio.open(outFile, 'w', **cMeta) as out:
         out.write_band(1, burned)
 
