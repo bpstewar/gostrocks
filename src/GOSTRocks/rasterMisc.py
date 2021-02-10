@@ -19,6 +19,9 @@ from rasterio import features
 from rasterio.mask import mask
 from rasterio.features import rasterize, MergeAlg
 from rasterio.warp import reproject, Resampling
+from rasterio import MemoryFile
+from contextlib import contextmanager
+
 from osgeo import gdal
 
 curPath = os.path.realpath(os.path.abspath(os.path.split(inspect.getfile( inspect.currentframe() ))[0]))
@@ -26,6 +29,21 @@ if not curPath in sys.path:
     sys.path.append(curPath)
 
 from misc import tPrint
+
+@contextmanager
+def create_rasterio_inmemory(src, curData):
+    '''Create a rasterio object in memory from a 
+    
+    :param: src - data dictionary describing the rasterio template i.e. - rasterio.open().profile
+    :param: curData - numpy array from which to create rasterio object
+    '''
+    with MemoryFile() as memFile:
+        with memFile.open(**src) as dataset:
+            dataset.write(curData)
+            del curData
+        
+        with memFile.open() as dataset:
+            yield(dataset)
 
 def clipRaster(inR, inD, outFile):
     ''' Clip input raster
@@ -51,7 +69,6 @@ def clipRaster(inR, inD, outFile):
                      "transform": out_transform})
     with rasterio.open(outFile, "w", **out_meta) as dest:
         dest.write(out_img)
-
 
 def rasterizeDataFrame(inD, outFile, idField='', templateRaster='', nCells=0, res=0, mergeAlg="REPLACE"):
     ''' Convert input geopandas dataframe into a raster file
