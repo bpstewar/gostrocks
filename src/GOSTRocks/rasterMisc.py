@@ -32,10 +32,10 @@ from misc import tPrint
 
 @contextmanager
 def create_rasterio_inmemory(src, curData):
-    '''Create a rasterio object in memory from a 
+    '''Create a rasterio object in memory from a numpy array 
     
-    :param: src - data dictionary describing the rasterio template i.e. - rasterio.open().profile
-    :param: curData - numpy array from which to create rasterio object
+    :param dictionary src: - data dictionary describing the rasterio template i.e. - rasterio.open().profile
+    :param numpy array curData: - numpy array from which to create rasterio object
     '''
     with MemoryFile() as memFile:
         with memFile.open(**src) as dataset:
@@ -70,7 +70,7 @@ def clipRaster(inR, inD, outFile):
     with rasterio.open(outFile, "w", **out_meta) as dest:
         dest.write(out_img)
 
-def rasterizeDataFrame(inD, outFile, idField='', templateRaster='', nCells=0, res=0, mergeAlg="REPLACE"):
+def rasterizeDataFrame(inD, outFile, idField='', templateRaster='', templateMeta = '', nCells=0, res=0, mergeAlg="REPLACE", re_proj=False):
     ''' Convert input geopandas dataframe into a raster file
         inD = gpd.read_file(r"C:\Temp\TFRecord\Data\Training Data\test3_training.shp")
         templateRaster=r"C:\Temp\TFRecord\Data\Training Data\test3.tif"
@@ -83,13 +83,14 @@ def rasterizeDataFrame(inD, outFile, idField='', templateRaster='', nCells=0, re
     OPTIONAL
         idField [string] - field to rasterize, sets everything to 1 otherwise
         templateRaster [string] - raster upon which to base raster creation
-        nCells - number of cells in width and height
-        res - resolution of output raster in units of the crs
+        nCells [number] - number of cells in width and height
+        res [number] - resolution of output raster in units of the crs
+        re_proj [Boolean] - option to reproject inD to templateRaster if CRS do not match
     '''
     ###Parameter checking
-    if nCells <=0 and res <=0:
+    if nCells <=0 and res <=0 and templateRaster == '' and templateMeta =='':
         raise(ValueError("Must define one of nCells or res"))
-    if nCells > 0 and res > 0:
+    if nCells > 0 and res > 0 and templateRaster == ''  and templateMeta =='':
         raise(ValueError("Cannot define both nCells and res"))
 
     #Set VALUE field equal to idField
@@ -111,6 +112,17 @@ def rasterizeDataFrame(inD, outFile, idField='', templateRaster='', nCells=0, re
         cMeta = inR.meta.copy()
         cMeta.update(count=1)
         nTransform = cMeta['transform']
+        if inD.crs != inR.crs:
+            if not re_proj:
+                raise(ValueError("input CRS do not match: inD - %s, templateRaster - %s" % (inD.crs, inR.crs)))
+            inD = inD.to_crs(inR.crs)
+    elif templateMeta != '':
+        cMeta = templateMeta
+        nTransform = cMeta['transform']
+        if inD.crs != cMeta['crs']:
+            if not re_proj:
+                raise(ValueError("input CRS do not match: inD - %s, templateRaster - %s" % (inD.crs, inR.crs)))
+            inD = inD.to_crs(cMeta['crs'])
     else:
         bounds = inD.total_bounds
         if nCells > 0:
@@ -308,16 +320,16 @@ def zonalStats(inShp, inRaster, bandNum=1, mask_A = None, reProj = False, minVal
             print("Error processing %s" % fCount)
     return outputData
 
-def standardizeInputRasters(inR1, inR2, inR1_outFile, data_type="N"):
+def standardizeInputRasters(inR1, inR2, inR1_outFile='', data_type="N"):
     ''' Standardize inR1 to inR2: changes crs, extent, and resolution.
 
     Inputs:
     inR1, inR2 [rasterio raster object]
-    inR1_outFile [string] - output file for creating inR1 standardized to inR2
+    [optional] inR1_outFile [string] - output file for creating inR1 standardized to inR2
     [optional] data_type [string ['C','N']]
     
     Returns:
-    nothing
+    [list] - [numpy array, raster metadata]
     '''
     if inR1.crs != inR2.crs:
         bounds = gpd.GeoDataFrame(pd.DataFrame([[1, box(*inR2.bounds)]], columns=["ID","geometry"]), geometry='geometry', crs=inR2.crs)
@@ -344,8 +356,10 @@ def standardizeInputRasters(inR1, inR2, inR1_outFile, data_type="N"):
                      "width": newArr.shape[2],
                      "transform": inR2.transform,
                      "crs": inR2.crs})
-    with rasterio.open(inR1_outFile, "w", **out_meta) as dest:
-        dest.write(newArr.astype(out_meta['dtype']))
+    if inR1_outFile != "":
+        with rasterio.open(inR1_outFile, "w", **out_meta) as dest:
+            dest.write(newArr.astype(out_meta['dtype']))
+    return([newArr.astype(out_meta['dtype']), out_meta])
 
 def jaccardIndex(inR1, inR2):
     '''Calculate the jaccard index on two binary input raster objects
