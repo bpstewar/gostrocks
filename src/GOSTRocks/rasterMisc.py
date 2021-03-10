@@ -347,9 +347,9 @@ def standardizeInputRasters(inR1, inR2, inR1_outFile='', data_type="N"):
     newArr = np.empty(shape=(1, inR2.shape[0], inR2.shape[1]))
     
     if data_type == "N":
-        resampling_type = Resampling.cubic
-    elif data_type == "C":
         resampling_type = Resampling.nearest
+    elif data_type == "C":
+        resampling_type = Resampling.cubic
     reproject(out_img, newArr, src_transform=out_transform, dst_transform=inR2.transform, src_crs=inR1.crs, dst_crs=inR2.crs, resampling=resampling_type)
     out_meta.update({"driver": "GTiff",
                      "height": newArr.shape[1],
