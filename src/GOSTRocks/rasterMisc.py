@@ -5,7 +5,7 @@
 ################################################################################
 
 import sys, os, inspect, logging, json
-import rasterio, affine
+import rasterio, affine, pyproj
 
 import pandas as pd
 import geopandas as gpd
@@ -83,9 +83,12 @@ def rasterizeDataFrame(inD, outFile, idField='', templateRaster='', templateMeta
     OPTIONAL
         idField [string] - field to rasterize, sets everything to 1 otherwise
         templateRaster [string] - raster upon which to base raster creation
+        templateMeta [dictionary] - raster metadata used to create output raster
         nCells [number] - number of cells in width and height
         res [number] - resolution of output raster in units of the crs
         re_proj [Boolean] - option to reproject inD to templateRaster if CRS do not match
+    RETURNS
+        [dict of [dict] and [numpy array]] - metadata used to create output raster and burned raster values
     '''
     ###Parameter checking
     if nCells <=0 and res <=0 and templateRaster == '' and templateMeta =='':
@@ -138,12 +141,22 @@ def rasterizeDataFrame(inD, outFile, idField='', templateRaster='', templateMeta
 
         b = inD.total_bounds
         nTransform = rasterio.transform.from_bounds(b[0], b[1], b[2], b[3], width, height)
-        cMeta = {'count':1, 'crs': inD.crs, 'dtype':inD['VALUE'].dtype, 'driver':'GTiff',
+        if inD.crs.__class__ == pyproj.crs.crs.CRS:
+            crs = {'init':'epsg:%s' % inD.crs.to_epsg()}
+        else:
+            crs = inD.crs
+        print(crs)
+        cMeta = {'count':1, 'crs': crs, 'dtype':inD['VALUE'].dtype, 'driver':'GTiff',
                  'transform':nTransform, 'height':height, 'width':width}
     shapes = ((row.geometry,row.VALUE) for idx, row in inD.iterrows())
     burned = features.rasterize(shapes=shapes, out_shape=(cMeta['height'], cMeta['width']), transform=nTransform, dtype=cMeta['dtype'], merge_alg=mAlg)
-    with rasterio.open(outFile, 'w', **cMeta) as out:
-        out.write_band(1, burned)
+    try:
+        with rasterio.open(outFile, 'w', **cMeta) as out:
+            out.write_band(1, burned)
+        return({'meta':cMeta, 'vals': burned})
+    except:
+        print("Error writing raster")
+        return({'meta':cMeta, 'vals': burned})
 
 def polygonizeArray(data, b, curRaster):
     '''
