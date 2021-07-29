@@ -10,7 +10,11 @@ import rasterio, affine, pyproj
 import pandas as pd
 import geopandas as gpd
 import numpy as np
+import matplotlib.pyplot as plt
+import xarray as xr
+import rioxarray as rxr
 
+from matplotlib.colors import ListedColormap, BoundaryNorm
 from collections import Counter
 from shapely.geometry import box
 from shapely import wkt
@@ -22,7 +26,8 @@ from rasterio.warp import reproject, Resampling
 from rasterio import MemoryFile
 from contextlib import contextmanager
 
-from osgeo import gdal
+import seaborn as sns
+sns.set(font_scale=1.5, style="whitegrid")
 
 curPath = os.path.realpath(os.path.abspath(os.path.split(inspect.getfile( inspect.currentframe() ))[0]))
 if not curPath in sys.path:
@@ -44,6 +49,43 @@ def create_rasterio_inmemory(src, curData):
         
         with memFile.open() as dataset:
             yield(dataset)
+            
+def map_viirs(cur_file, out_file='', class_bins = [-10,0.5,1,2,3,5,10,15,20,30,40,50], text_x=0, text_y=5, dpi=100):
+    ''' create map of viirs data
+    
+    INPUT
+        cur_file [string] - path to input geotif
+        [optional] out_file [string] - path to create output image
+        [optional] class_bins [list numbers] - breaks for applying colour ramp
+        [optional] text_x [int] - position on map to position year text (left to right)
+        [optional] text_y [int] - position on map to position year text (top to bottom)
+    '''
+    # extract the year from the file name
+    year = cur_file.split("_")[-1][:4]
+    
+    # Open the VIIRS data and reclassify 
+    inR = rasterio.open(cur_file)
+    inD = inR.read() 
+    inC = xr.apply_ufunc(np.digitize,inD,class_bins)
+
+    # Plot the figure, remove grid and ticks
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    ax.grid(False)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    
+    ### TODO: add the year to the map, may need to experiment with the location depend on geography
+    ax.text(text_x, text_y, year, fontsize=40, color='white')
+
+    #plt.margins(0,0)
+    if out_file != '':
+        #plt.imsave(out_file, inC[0,:,:], cmap=plt.get_cmap('magma'))
+        plt.imshow(inC[0,:,:], cmap=plt.get_cmap('magma'))
+        fig.savefig(out_file, dpi=dpi, bbox_inches='tight', pad_inches=0)
+    else:
+        # https://matplotlib.org/stable/tutorials/colors/colormaps.html
+        plt.imshow(inC[0,:,:], cmap=plt.get_cmap('magma'))
 
 def clipRaster(inR, inD, outFile):
     ''' Clip input raster
@@ -406,67 +448,16 @@ def jaccardIndex(inR1, inR2):
     except:
         return -1
 
-def gdalbuildVRT(outputFile, inputFiles):
-    ''' Build VRT of input file: PLEASE USE COMMAND LINE GDALBUILDVRT IF POSSIBLE!!!1/1!/!/!?1!/1!!!
-    THIS DEOSNTN FUDA#$!@%% WORK!@!@
-    INPUT
-    outputFile [string] - output vrt path
-    inputFiles [list of strings] - input files
-
-    DEBUG
-    inputFiles = [r'Q:\GLOBAL\HYDRO\SSBN_Flooding\indonesia\ID_fluvial_defended\ID-FD-5-1.tif',r'Q:\GLOBAL\HYDRO\SSBN_Flooding\indonesia\ID_fluvial_defended\ID-FD-5-2.tif',r'Q:\GLOBAL\HYDRO\SSBN_Flooding\indonesia\ID_fluvial_defended\ID-FD-5-3.tif',r'Q:\GLOBAL\HYDRO\SSBN_Flooding\indonesia\ID_fluvial_defended\ID-FD-5-4.tif',r'Q:\GLOBAL\HYDRO\SSBN_Flooding\indonesia\ID_fluvial_defended\ID-FD-5-5.tif',r'Q:\GLOBAL\HYDRO\SSBN_Flooding\indonesia\ID_fluvial_defended\ID-FD-5-6.tif',r'Q:\GLOBAL\HYDRO\SSBN_Flooding\indonesia\ID_fluvial_defended\ID-FD-5-7.tif',r'Q:\GLOBAL\HYDRO\SSBN_Flooding\indonesia\ID_fluvial_defended\ID-FD-5-8.tif']
-    outputFile = r"Q:\GLOBAL\HYDRO\SSBN_Flooding\indonesia\ID-FD-5-1.vrt"
-    '''
-    #loop through inputFiles to get total x and y size
-    xSize = 0
-    ySize = 0
-    fileStats = []
-    for inFile in inputFiles:
-        inD = rasterio.open(inFile)
-        ul = inD.ul(0,0)
-        fileStats.append([inFile, ul[0], ul[1], inD.meta['width'], inD.meta['height'],
-                            inD.meta['transform'][1], inD.block_shapes[0][0], inD.block_shapes[0][1]])
-
-        xx = pd.DataFrame(fileStats, columns=['fileName', 'ul_x', 'ul_y', 'width', 'height', 'resolution', 'block_height', 'block_width'])
-        xSize = ((xx.ul_x.max() - xx.ul_x.min()) / xx.resolution[0]) + xx.width[0]
-        ySize = ((xx.ul_y.max() - xx.ul_y.min()) / xx.resolution[0]) + xx.height[0]
-
-    drv = gdal.GetDriverByName("VRT")
-    vrt = drv.Create(outputFile, int(xSize), int(ySize), 0)
-
-    bndCount = 0
-    for idx, row in xx.iterrows():
-        bndCount += 1
-        vrt.AddBand(gdal.GDT_Float32)
-        band = vrt.GetRasterBand(bndCount)
-        xOff = (row.ul_x - xx.ul_x.min()) / row.resolution
-        yOff = (row.ul_y - xx.ul_y.min()) / row.resolution
-        # Changed `x_size` and `y_size` to `x_source_size` and `y_source_size` on the "SourceProperties" line, since the
-        # `RasterXSize` and `RasterYSize` attributes should correspond to this source file's pixel size.
-        band.SetMetadataItem
-        ### This part is not really working
-        simple_source = r'<SourceFilename relativeToVRT="0">%s</SourceFilename>' % row.fileName + \
-            r'<SourceBand>1</SourceBand>' + \
-            r'<SourceProperties RasterXSize="%i" RasterYSize="%i" DataType="Real" BlockXSize="%i" BlockYSize="%i"/>' % \
-            (row.width, row.height, row.block_width, row.block_height,) + \
-            r'<SrcRect xOff="%i" yOff="%i" xSize="%i" ySize="%i"/>' % (0, 0, row.width, row.height) + \
-            r'<DstRect xOff="%i" yOff="%i" xSize="%i" ySize="%i"/>' % (xOff, yOff, row.width, row.height)
-        band.SetMetadataItem("SimpleSource", simple_source)
-        # Changed from an integer to a string, since only strings are allowed in `SetMetadataItem`.
-        band.SetMetadataItem("NoDataValue", '-9999')
-
-    vrt=None
-
-    def groupJaccard(oFile, sFiles):
-        with open(oFile, 'w') as output:
-            for bFile in sFiles:
-                inR2 = rasterio.open(bFile)
-                for cFile in sFiles:
-                    if bFile != cFile:
-                        logging.info("Processing %s and %s" % (os.path.basename(bFile), os.path.basename(cFile)))
-                        inR1 = rasterio.open(cFile)
-                        curIndex = jaccardIndex(inR2, inR1)
-                        output.write("%s,%s,%s\n" % (os.path.basename(bFile), os.path.basename(cFile), curIndex))
+def groupJaccard(oFile, sFiles):
+    with open(oFile, 'w') as output:
+        for bFile in sFiles:
+            inR2 = rasterio.open(bFile)
+            for cFile in sFiles:
+                if bFile != cFile:
+                    logging.info("Processing %s and %s" % (os.path.basename(bFile), os.path.basename(cFile)))
+                    inR1 = rasterio.open(cFile)
+                    curIndex = jaccardIndex(inR2, inR1)
+                    output.write("%s,%s,%s\n" % (os.path.basename(bFile), os.path.basename(cFile), curIndex))
 
 class zonalResult(object):
     def __init__(self, inputPath, fileType, fieldToCopy='ALL', fieldAction= 'REPLACE', fieldNames=''):

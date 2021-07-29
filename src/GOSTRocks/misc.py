@@ -1,6 +1,7 @@
 import os, sys, time, math, subprocess, inspect, json, glob, logging
 
 import geopandas as gpd
+import pandas as pd
 import shapely
 import fiona 
 import pyproj
@@ -8,11 +9,10 @@ import rasterio
 import numpy
 import ogr
 
-from osgeo import osr
 from collections import Counter
 from math import ceil
 from rtree import index
-from shapely.geometry import shape
+from shapely.geometry import shape, Point, Polygon
 from affine import Affine
 from rasterio.features import rasterize
 
@@ -161,19 +161,31 @@ def tabulateUnq(unqResults, verbose=False, columnPrefix="c"):
         allRes.append(curRes)
     return pd.DataFrame(allRes, columns=["%s_%s" % (columnPrefix, xxx) for xxx in unq])    
 
-def createFishnet(outputGridfn,xmin,xmax,ymin,ymax,gridHeight,gridWidth,crsNum=4326):
+def get_box(row, col, l, r, b, t, gridWidth, gridHeight):
+    ll = Point(l + (row * gridWidth), b + (col + gridHeight))
+    ul = Point(l + (row * gridWidth), t + (col + gridHeight))
+    ur = Point(r + (row * gridWidth), t + (col + gridHeight))
+    lr = Point(r + (row * gridWidth), b + (col + gridHeight))
+    box = Polygon([ll, ul, ur, lr, ll])
+    return(box)
+
+def get_point(row, col, l, r, b, t, gridWidth, gridHeight):
+    pt = Point((l+r)/2 + (col*gridWidth), (t+b)/2  - (row * gridHeight))
+    return(pt)    
+
+def createFishnet_gdf(inD, outFile, type='POLY'):
+    ''' create a fishnet for each polygon in an input dataframe
+    '''
+    if res.geometry[0].type != "Polygon":
+        raise(ValueError("Input dataframe must be Polygonal"))
+    
+def createFishnet(xmin,xmax,ymin,ymax,gridHeight,gridWidth,type='POLY',crsNum=4326,outputGridfn=''):
     ''' Create a fishnet shapefile inside the defined coordinates 
     outputGridfn: output shapefile to hold the grid
     xmin,xmax,ymin,ymax: coordinates for the extent of the fishnet
     gridHeight,gridWidth: dimensions of the grid cells in the outpout fishnet
     '''    
-    #Define projection
-    testSR = osr.SpatialReference()
-    res = testSR.ImportFromEPSG(crsNum)
-    if res != 0:
-        raise RuntimeError(repr(res) + ': could not import from EPSG')
-    
-    # convert sys.argv to float
+   # convert sys.argv to float
     xmin = float(xmin)
     xmax = float(xmax)
 
@@ -193,51 +205,18 @@ def createFishnet(outputGridfn,xmin,xmax,ymin,ymax,gridHeight,gridWidth,crsNum=4
     ringYtopOrigin = ymax
     ringYbottomOrigin = ymax-gridHeight
 
-    # create output file
-    outDriver = ogr.GetDriverByName('ESRI Shapefile')
-    if os.path.exists(outputGridfn):
-        os.remove(outputGridfn)
-    outDataSource = outDriver.CreateDataSource(outputGridfn)
-    outLayer = outDataSource.CreateLayer(outputGridfn, testSR, geom_type=ogr.wkbPolygon )
-    featureDefn = outLayer.GetLayerDefn()
-
-    # create grid cells
-    countcols = 0
-    while countcols < cols:
-        countcols += 1
-
-        # reset envelope for rows
-        ringYtop = ringYtopOrigin
-        ringYbottom =ringYbottomOrigin
-        countrows = 0
-
-        while countrows < rows:
-            countrows += 1
-            ring = ogr.Geometry(ogr.wkbLinearRing)
-            ring.AddPoint(ringXleftOrigin, ringYtop)
-            ring.AddPoint(ringXrightOrigin, ringYtop)
-            ring.AddPoint(ringXrightOrigin, ringYbottom)
-            ring.AddPoint(ringXleftOrigin, ringYbottom)
-            ring.AddPoint(ringXleftOrigin, ringYtop)
-            poly = ogr.Geometry(ogr.wkbPolygon)
-            poly.AddGeometry(ring)
-
-            # add new geom to layer
-            outFeature = ogr.Feature(featureDefn)
-            outFeature.SetGeometry(poly)
-            outLayer.CreateFeature(outFeature)
-            outFeature.Destroy
-
-            # new envelope for next poly
-            ringYtop = ringYtop - gridHeight
-            ringYbottom = ringYbottom - gridHeight
-
-        # new envelope for next poly
-        ringXleftOrigin = ringXleftOrigin + gridWidth
-        ringXrightOrigin = ringXrightOrigin + gridWidth
-
-    # Close DataSources
-    outDataSource.Destroy()
+    all_res = []
+    for rowIdx in range(0, rows):
+        for colIdx in range(0, cols):
+            if type == "POLY":
+                box = get_box(rowIdx, colIdx, ringXleftOrigin, ringXrightOrigin, ringYbottomOrigin, ringYtopOrigin, gridWidth, gridHeight)
+            elif type == "POINT":
+                box = get_point(rowIdx, colIdx, ringXleftOrigin, ringXrightOrigin, ringYbottomOrigin, ringYtopOrigin, gridWidth, gridHeight)
+            all_res.append([rowIdx, colIdx, box])
+    res = gpd.GeoDataFrame(pd.DataFrame(all_res, columns=['rowIdx', 'colIdx', 'geometry']), geometry='geometry', crs=f'epsg:{crsNum}')
+    if outputGridfn != '':
+        res.to_file(outputGridfn)
+    return(res)
 
 def getVIIRSFiles(baseFolder=r"R:\GLOBAL\NTL\VIIRS", years="all", months="all", tile=-1, retType="images"):
     '''
