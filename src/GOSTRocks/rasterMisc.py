@@ -50,49 +50,13 @@ def create_rasterio_inmemory(src, curData):
         with memFile.open() as dataset:
             yield(dataset)
             
-def map_viirs(cur_file, out_file='', class_bins = [-10,0.5,1,2,3,5,10,15,20,30,40,50], text_x=0, text_y=5, dpi=100):
-    ''' create map of viirs data
-    
-    INPUT
-        cur_file [string] - path to input geotif
-        [optional] out_file [string] - path to create output image
-        [optional] class_bins [list numbers] - breaks for applying colour ramp
-        [optional] text_x [int] - position on map to position year text (left to right)
-        [optional] text_y [int] - position on map to position year text (top to bottom)
-    '''
-    # extract the year from the file name
-    year = cur_file.split("_")[-1][:4]
-    
-    # Open the VIIRS data and reclassify 
-    inR = rasterio.open(cur_file)
-    inD = inR.read() 
-    inC = xr.apply_ufunc(np.digitize,inD,class_bins)
-
-    # Plot the figure, remove grid and ticks
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    ax.grid(False)
-    ax.set_xticks([])
-    ax.set_yticks([])
-    
-    ### TODO: add the year to the map, may need to experiment with the location depend on geography
-    ax.text(text_x, text_y, year, fontsize=40, color='white')
-
-    #plt.margins(0,0)
-    if out_file != '':
-        #plt.imsave(out_file, inC[0,:,:], cmap=plt.get_cmap('magma'))
-        plt.imshow(inC[0,:,:], cmap=plt.get_cmap('magma'))
-        fig.savefig(out_file, dpi=dpi, bbox_inches='tight', pad_inches=0)
-    else:
-        # https://matplotlib.org/stable/tutorials/colors/colormaps.html
-        plt.imshow(inC[0,:,:], cmap=plt.get_cmap('magma'))
-
-def clipRaster(inR, inD, outFile):
+def clipRaster(inR, inD, outFile, crop=True):
     ''' Clip input raster
     INPUT
     [rasterio object] inR = rasterio.open(r"Q:/GLOBAL/POP&DEMO/GHS/BETA/FULL/MT/MT.vrt")
     [geopandas object]inD = gpd.read_file(r"Q:\WORKINGPROJECTS\CityScan\Data\CityExtents\Conotou_AOI.shp")
     [string]          outFile = r"Q:\WORKINGPROJECTS\CityScan\Data\CityExtents\Conotou_AOI\MappingData\GHSL.tif"
+    [Boolean] crop [default True] clip to exact extent of shape (True) or to bounding box (False)
 
     '''
     if inD.crs != inR.crs:
@@ -102,7 +66,11 @@ def clipRaster(inR, inD, outFile):
     def getFeatures(gdf):
         #Function to parse features from GeoDataFrame in such a manner that rasterio wants them
         return [json.loads(gdf.to_json())['features'][0]['geometry']]
-    tD = gpd.GeoDataFrame([[1]], geometry=[inD.unary_union])
+    if crop:
+        tD = gpd.GeoDataFrame([[1]], geometry=[inD.unary_union])
+    else:
+        tD = gpd.GeoDataFrame([[1]], geometry=[box(*inD.total_bounds)])
+    
     coords = getFeatures(tD)
     out_img, out_transform = mask(inR, shapes=coords, crop=True)
     out_meta.update({"driver": "GTiff",
