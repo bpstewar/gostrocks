@@ -1,0 +1,21 @@
+import os
+from os import listdir
+import re
+import pandas as pd # v1.0.3 (latest v1.4.1)
+import numpy as np # v1.18.1 (latest v1.21.5)
+import json
+import geojson
+import geopandas as gpd # v0.6.3 (latest v0.10.2)
+import fiona # v1.8.4 (latest v1.8.21)
+import rasterio # v1.0.21 (latest v1.2.10)
+from rasterio.plot import show
+from shapely.geometry import shape, GeometryCollection
+from shapely.wkt import loads
+import arcpy # v2.6
+from arcgis.features import GeoAccessor, GeoSeriesAccessor
+import matplotlib # v3.2.1 (latest v3.5.1)
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+from matplotlib import colors
+import seaborn as sns
+from tqdm.notebook import tqdm
