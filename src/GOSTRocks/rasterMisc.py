@@ -27,6 +27,7 @@ from rasterio import MemoryFile
 from contextlib import contextmanager
 
 import seaborn as sns
+import shapely
 sns.set(font_scale=1.5, style="whitegrid")
 
 curPath = os.path.realpath(os.path.abspath(os.path.split(inspect.getfile( inspect.currentframe() ))[0]))
@@ -343,7 +344,7 @@ def zonalStats(inShp, inRaster, bandNum=1, mask_A = None, reProj = False, minVal
             print("Error processing %s" % fCount)
     return outputData
 
-def standardizeInputRasters(inR1, inR2, inR1_outFile='', data_type="N"):
+def standardizeInputRasters(inR1, inR2, inR1_outFile='', resampling_type="nearest"):
     ''' Standardize inR1 to inR2: changes crs, extent, and resolution.
 
     Inputs:
@@ -365,14 +366,17 @@ def standardizeInputRasters(inR1, inR2, inR1_outFile='', data_type="N"):
     #Clip R1 to R2
     #Get JSON of bounding box
     out_img, out_transform = mask(inR1, boxJSON, crop=True)
+    out_img[out_img<0] = 0
     out_meta = inR1.meta.copy()
     #Re-scale resolution of R1 to R2
     newArr = np.empty(shape=(1, inR2.shape[0], inR2.shape[1]))
     
-    if data_type == "N":
+    if resampling_type == "cubic":
         resampling_type = Resampling.cubic
-    elif data_type == "C":
+    elif resampling_type == "nearest":
         resampling_type = Resampling.nearest
+    elif resampling_type == "sum":
+        resampling_type = Resampling.sum
     reproject(out_img, newArr, src_transform=out_transform, dst_transform=inR2.transform, src_crs=inR1.crs, dst_crs=inR2.crs, resampling=resampling_type)
     out_meta.update({"driver": "GTiff",
                      "height": newArr.shape[1],
