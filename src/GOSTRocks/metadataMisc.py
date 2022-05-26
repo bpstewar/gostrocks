@@ -1,4 +1,4 @@
-import os, re, json
+import os, re, json, logging
 
 import geojson
 import rasterio # v1.0.21 (latest v1.2.10)
@@ -29,6 +29,10 @@ except:
 vector_file_types = ['.shp','.kml','.geojson']
 raster_file_types = ['.tif','.tiff','.geotiff','.geotif']
 
+
+### TODO: 
+# 1. Add searching through ESRI geodatabases
+# 2. Add support to include tables (xlsx, csv)
    
 class metadata_gost:
     ''' Create standardized metadata for folders of geospatial data
@@ -78,7 +82,8 @@ class metadata_gost:
         with pd.ExcelWriter(out_file, engine='openpyxl', mode='w', if_sheet_exists='replace') as writer:
            base_pd.to_excel(writer, 'dataset info', encoding='utf8')
            layer_metadata.to_excel(writer, 'layer_summaries', encoding='utf8')
-           field_metadata.to_excel(writer, 'field_summaries', encoding='utf8')
+           if field_metadata:
+               field_metadata.to_excel(writer, 'field_summaries', encoding='utf8')
         
     
     def generate_metadata(self, vector_files=None, raster_files=None):
@@ -125,12 +130,19 @@ class metadata_gost:
         metadata = []
         field_defs = []
         for vector_file in vector_files:            
-            cur_meta = vector_file_metadata(vector_file)
-            metadata.append(cur_meta.get_metadata())
-            field_defs.append(cur_meta.get_field_summaries())
+            try:
+                cur_meta = vector_file_metadata(vector_file)
+                metadata.append(cur_meta.get_metadata())
+                field_defs.append(cur_meta.get_field_summaries())
+            except:
+                logging.error(f"Cannot log {raster_file}")
+            
         for raster_file in raster_files:
-            cur_meta = raster_file_metadata(raster_file)
-            metadata.append(cur_meta.get_metadata())
+            try:
+                cur_meta = raster_file_metadata(raster_file)
+                metadata.append(cur_meta.get_metadata())
+            except:
+                logging.error(f"Cannot log {raster_file}")
             
         metaPD = pd.DataFrame(metadata)
         metaPD['layer_label'] = ''
@@ -138,6 +150,7 @@ class metadata_gost:
         metaPD['source_name'] = ''
         metaPD['source_url'] = ''
         metaPD['data_process_summary'] = ''
+        self.metaPD = metaPD        
         try:
             del final
         except:
@@ -148,11 +161,12 @@ class metadata_gost:
                 final = final.append(cur_pd)
             except:
                 final = cur_pd
-        
-        fieldsPD = final.reset_index()
-        self.metaPD = metaPD        
-        self.fieldsPD = fieldsPD
-        
+        try:
+            fieldsPD = final.reset_index()
+            self.fieldsPD = fieldsPD
+        except:
+            fieldsPD = None
+            self.fieldsPD = None            
         return({'metadata':metaPD, 'fields':fieldsPD})            
 
 class raster_file_metadata:
