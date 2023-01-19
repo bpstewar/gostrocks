@@ -24,10 +24,10 @@ try:
     import arcpy # v2.6
     from arcgis.features import GeoAccessor, GeoSeriesAccessor
 except:
-    print("Could not import arcgis libraries")
+    print("METADATA Library: Could not import arcgis libraries")
     
 vector_file_types = ['.shp','.kml','.geojson']
-raster_file_types = ['.tif','.tiff','.geotiff','.geotif']
+raster_file_types = ['.TIF','.tif','.tiff','.geotiff','.geotif']
 
 
 ### TODO: 
@@ -40,6 +40,8 @@ class metadata_gost:
     
     def __init__(self, input_dir, output_dir, type="Folder"):
         self.input_dir = input_dir
+        if not os.path.exists(input_dir):
+            raise(ValueError("Input directory does not exist"))
         self.output_dir = output_dir
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
@@ -78,13 +80,11 @@ class metadata_gost:
            layer_metadata = self.metaPD
         if field_metadata is None:
            field_metadata = self.fieldsPD
-         
+        
         with pd.ExcelWriter(out_file, engine='openpyxl', mode='w', if_sheet_exists='replace') as writer:
            base_pd.to_excel(writer, 'dataset info', encoding='utf8')
            layer_metadata.to_excel(writer, 'layer_summaries', encoding='utf8')
-           if field_metadata:
-               field_metadata.to_excel(writer, 'field_summaries', encoding='utf8')
-        
+           field_metadata.to_excel(writer, 'field_summaries', encoding='utf8')
     
     def generate_metadata(self, vector_files=None, raster_files=None):
         ''' Generate metadata for vector and raster files
@@ -131,15 +131,15 @@ class metadata_gost:
         field_defs = []
         for vector_file in vector_files:            
             try:
-                cur_meta = vector_file_metadata(vector_file)
+                cur_meta = vector_file_metadata(vector_file, in_folder=self.input_dir)
                 metadata.append(cur_meta.get_metadata())
                 field_defs.append(cur_meta.get_field_summaries())
             except:
-                logging.error(f"Cannot log {raster_file}")
+                logging.error(f"Cannot log {vector_file}")
             
         for raster_file in raster_files:
             try:
-                cur_meta = raster_file_metadata(raster_file)
+                cur_meta = raster_file_metadata(raster_file, in_folder=self.input_dir)
                 metadata.append(cur_meta.get_metadata())
             except:
                 logging.error(f"Cannot log {raster_file}")
@@ -166,13 +166,20 @@ class metadata_gost:
             self.fieldsPD = fieldsPD
         except:
             fieldsPD = None
-            self.fieldsPD = None            
+            self.fieldsPD = None  
+        self.metaPD.sort_values(['folder',"layer_name"], inplace=True)
+        self.fieldsPD.sort_values(["layer_name", "field_name"], inplace=True)
+        
         return({'metadata':metaPD, 'fields':fieldsPD})            
 
 class raster_file_metadata:
-    def __init__(self, path):
+    def __init__(self, path, in_folder=''):
         self.path = path
         self.layer_name = os.path.splitext((os.path.basename(path)))[0]
+        if in_folder == '':
+            self.dir_name = os.path.dirname(path)
+        else:
+            self.dir_name = os.path.dirname(path).replace(in_folder, '')
         self.data_type = "Raster"
         
         curR = rasterio.open(path)
@@ -200,6 +207,7 @@ class raster_file_metadata:
         
     def get_metadata(self):
         return({'layer_name': self.layer_name, 
+                'folder': self.dir_name,
                 'data_type': self.data_type, 
                 'crs_name': self.crs_name, 'crs_code': self.crs_code, 
                 'num_dimensions': self.num_dimensions,
@@ -212,9 +220,14 @@ class raster_file_metadata:
                 'raster_res': self.raster_res})
               
 class vector_file_metadata:
-    def __init__(self, path):
+    def __init__(self, path, in_folder=''):
         self.path = path
+        self.in_folder = ''
         self.layer_name = os.path.splitext((os.path.basename(path)))[0]
+        if in_folder == '':
+            self.dir_name = os.path.dirname(path)
+        else:
+            self.dir_name = os.path.dirname(path).replace(in_folder, '')
         self.data_type = "Vector"
         
         curD = gpd.read_file(path)

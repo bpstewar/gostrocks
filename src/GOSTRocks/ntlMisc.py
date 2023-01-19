@@ -5,6 +5,10 @@ import pandas as pd
 import geopandas as gpd
 import numpy as np
 
+from botocore.config import Config
+from botocore import UNSIGNED
+
+
 def map_viirs(cur_file, out_file='', class_bins = [-10,0.5,1,2,3,5,10,15,20,30,40,50], text_x=0, text_y=5, dpi=100):
     ''' create map of viirs data
     
@@ -42,18 +46,23 @@ def map_viirs(cur_file, out_file='', class_bins = [-10,0.5,1,2,3,5,10,15,20,30,4
         # https://matplotlib.org/stable/tutorials/colors/colormaps.html
         plt.imshow(inC[0,:,:], cmap=plt.get_cmap('magma'))
 
-def find_monthly_ntl(bucket='wbgdecinternal-ntl', prefix='NTL/VIIRS/Annual/VIIRS_ANNUAL_EOG'):
-    ''' Get list of NTL files in AWS
+def aws_search_ntl(bucket='globalnightlight', prefix='composites', region='us-east-1', unsigned=True, verbose=False):
+    ''' Get list of NTL files in AWS using the LEN repository - https://registry.opendata.aws/wb-light-every-night/
     
     INPUT
     bucket [string, optional] - bucket to search for imagery
-    prefix [string, optional] - prefix storing images. Default is annual composites from EOG, choose "NTL/VIIRS" for monthly
+    prefix [string, optional] - prefix storing images. Not required for LEN
+    region [string, optional] - AWS region for bucket
+    unsigned [boolean, optional] - if True, search buckets without stored boto credentials
     
     RETURNS
-    [pandas dataframe]
+    [list of strings] - http path to ntl files
     '''
 
-    s3client = boto3.client('s3')
+    if unsigned:
+        s3client = boto3.client('s3', config=Config(signature_version=UNSIGNED))
+    else:
+        s3client = boto3.client('s3')
     
     # Loop through the S3 bucket and get all the keys for files that are .tif 
     more_results = True
@@ -64,7 +73,8 @@ def find_monthly_ntl(bucket='wbgdecinternal-ntl', prefix='NTL/VIIRS/Annual/VIIRS
     loops = 0
     good_res = []
     while more_results:
-        print(f"Completed loop: {loops}")
+        if verbose:
+            print(f"Completed loop: {loops}")
         if loops > 0:
             objects = s3client.list_objects_v2(Bucket=bucket, Prefix=prefix, ContinuationToken=token)
         else:
@@ -74,8 +84,8 @@ def find_monthly_ntl(bucket='wbgdecinternal-ntl', prefix='NTL/VIIRS/Annual/VIIRS
             token = objects['NextContinuationToken']
         loops += 1
         for res in objects['Contents']:
-            if res['Key'].endswith('.tif'):
-                good_res.append(f"s3://{bucket}/{res['Key']}")
+            if res['Key'].endswith('avg_rade9.tif') and ("slcorr" in res['Key']):
+                good_res.append(f"https://globalnightlight.s3.amazonaws.com/{res['Key']}")
     
     return(good_res)
 
