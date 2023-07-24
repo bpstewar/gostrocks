@@ -1,23 +1,16 @@
-import os, re, json, logging
+import os, logging
 
-import geojson
 import rasterio # v1.0.21 (latest v1.2.10)
-import fiona # v1.8.4 (latest v1.8.21)
 
-import numpy as np # v1.18.1 (latest v1.21.5)
 import pandas as pd # v1.0.3 (latest v1.4.1)
 import geopandas as gpd # v0.6.3 (latest v0.10.2)
 
 import seaborn as sns
-import matplotlib # v3.2.1 (latest v3.5.1)
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 
 from rasterio.plot import show
-from shapely.geometry import shape, GeometryCollection
+from shapely.geometry import shape
 from shapely.wkt import loads
-from matplotlib import colors
-from tqdm.notebook import tqdm
+from tqdm import tqdm
 from pyproj.crs.crs import CRS
 
 try:
@@ -39,6 +32,15 @@ class metadata_gost:
     '''
     
     def __init__(self, input_dir, output_dir, type="Folder"):
+        """ Create standardized metadata for folders of geospatial data
+
+        :param input_dir: Folder to search for geospatial layers
+        :type input_dir: str
+        :param output_dir: Where to create output metadata files
+        :type output_dir: str
+        :param type: What we are searching, defaults to "Folder"
+        :type type: str, optional
+        """
         self.input_dir = input_dir
         if not os.path.exists(input_dir):
             raise(ValueError("Input directory does not exist"))

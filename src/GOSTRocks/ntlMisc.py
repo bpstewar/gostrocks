@@ -1,24 +1,35 @@
-import sys, os, inspect, logging, json
-import rasterio, boto3
+import sys, os, inspect
+import rasterio
 
 import pandas as pd
-import geopandas as gpd
 import numpy as np
+import xarray as xr
+import matplotlib.pyplot as plt
 
-from botocore.config import Config
-from botocore import UNSIGNED
+curPath = os.path.realpath(os.path.abspath(os.path.split(inspect.getfile( inspect.currentframe() ))[0]))
+if not curPath in sys.path:
+    sys.path.append(curPath)
 
+from dataMisc import aws_search_ntl
+from misc import tPrint
+import rasterMisc as rMisc
 
 def map_viirs(cur_file, out_file='', class_bins = [-10,0.5,1,2,3,5,10,15,20,30,40,50], text_x=0, text_y=5, dpi=100):
-    ''' create map of viirs data
-    
-    INPUT
-        cur_file [string] - path to input geotif
-        [optional] out_file [string] - path to create output image
-        [optional] class_bins [list numbers] - breaks for applying colour ramp
-        [optional] text_x [int] - position on map to position year text (left to right)
-        [optional] text_y [int] - position on map to position year text (top to bottom)
-    '''
+    """Map VIIRS nighttime lights imagery, optionally create output image
+
+    :param cur_file: path to input geotiff
+    :type cur_file: string
+    :param out_file: path to create output image, defaults to '' which does not create a file
+    :type out_file: str, optional
+    :param class_bins: breaks for applying colour ramp, defaults to [-10,0.5,1,2,3,5,10,15,20,30,40,50]
+    :type class_bins: list, optional
+    :param text_x: position on map to position year text (left to right), defaults to 0
+    :type text_x: int, optional
+    :param text_y: position on map to position year text (top to bottom), defaults to 5
+    :type text_y: int, optional
+    :param dpi: dotes per inch for output image, defaults to 100
+    :type dpi: int, optional
+    """
     # extract the year from the file name
     year = cur_file.split("_")[-1][:4]
     
@@ -46,46 +57,43 @@ def map_viirs(cur_file, out_file='', class_bins = [-10,0.5,1,2,3,5,10,15,20,30,4
         # https://matplotlib.org/stable/tutorials/colors/colormaps.html
         plt.imshow(inC[0,:,:], cmap=plt.get_cmap('magma'))
 
-def aws_search_ntl(bucket='globalnightlight', prefix='composites', region='us-east-1', unsigned=True, verbose=False):
-    ''' Get list of NTL files in AWS using the LEN repository - https://registry.opendata.aws/wb-light-every-night/
     
-    INPUT
-    bucket [string, optional] - bucket to search for imagery
-    prefix [string, optional] - prefix storing images. Not required for LEN
-    region [string, optional] - AWS region for bucket
-    unsigned [boolean, optional] - if True, search buckets without stored boto credentials
-    
-    RETURNS
-    [list of strings] - http path to ntl files
-    '''
+def run_zonal(inD, ntl_files=[], minval=0.1, verbose=False, calc_sd=True):
+    """ Run zonal statistics against a series of nighttime lights files
 
-    if unsigned:
-        s3client = boto3.client('s3', config=Config(signature_version=UNSIGNED))
-    else:
-        s3client = boto3.client('s3')
+    :param inD: input geopandas dataframe in which to summarize results
+    :type inD: gpd.GeoDataFrames
+    :param ntl_files: list of ntl files to summarize, defaults to [] which will search for all files in the s3 bucket using datMisc.aws_search_ntl()
+    :type ntl_files: list, optional
+    :param minval: Minimum value to summarize in nighttime lights, defaults to 0.1 which means all values below this become 0
+    :type minval: float, optional
+    :param verbose: print additional information, defaults to False
+    :type verbose: bool, optional
+    :param calc_sd: _description_, defaults to True
+    :type calc_sd: bool, optional
+    """
     
-    # Loop through the S3 bucket and get all the keys for files that are .tif 
-    more_results = True
-    try:
-        del(token)
-    except:
-        pass
-    loops = 0
-    good_res = []
-    while more_results:
+    ''' run zonal stats on all ntl files
+    INPUT 
+        inD [geopandas dataframe]
+        
+    RETURNS
+        pandas dataframe
+    '''
+    if len(ntl_files) == 0:
+        ntl_files = aws_search_ntl()
+        
+    for ntl_file in ntl_files:
+        name = ntl_file.split("/")[-1].split("_")[2][:8]
         if verbose:
-            print(f"Completed loop: {loops}")
-        if loops > 0:
-            objects = s3client.list_objects_v2(Bucket=bucket, Prefix=prefix, ContinuationToken=token)
-        else:
-            objects = s3client.list_objects_v2(Bucket=bucket, Prefix=prefix)
-        more_results = objects['IsTruncated']
-        if more_results:
-            token = objects['NextContinuationToken']
-        loops += 1
-        for res in objects['Contents']:
-            if res['Key'].endswith('avg_rade9.tif') and ("slcorr" in res['Key']):
-                good_res.append(f"https://globalnightlight.s3.amazonaws.com/{res['Key']}")
+            tPrint(name)
+        inR = rasterio.open(ntl_file)
+        ntl_res = rMisc.zonalStats(inD, inR, minVal=minval, calc_sd=calc_sd) 
+        out_cols = ['SUM','MIN','MAX','MEAN']
+        if calc_sd:
+            out_cols.append("SD")
+        ntl_df = pd.DataFrame(ntl_res, columns=out_cols)
+        inD[f'ntl_{name}_SUM'] = ntl_df['SUM']
+    return(inD)
     
-    return(good_res)
 

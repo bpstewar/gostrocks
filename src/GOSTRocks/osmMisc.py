@@ -1,22 +1,11 @@
-###############################################################################
-# Summarize OSM roads lengths
-# Charles Fox, July 2018
-# Purpose: summarize road lengths within features in defined shapefile
-###############################################################################
-
-import os, sys, time, subprocess, argparse, logging
-
-import GOSTnets as gn
-#from . import OSMNX_POIs
+import subprocess, argparse, logging
 
 import geopandas as gpd
 import osmnx as ox
 import pandas as pd
-import networkx as nx
 
 from shapely.geometry import box
-#import misc
-
+from GOSTRocks import misc
 
 # Highway features are reclassified to 4 OSMLR classes for simplification and standardization
 #   https://mapzen.com/blog/osmlr-2nd-technical-preview/
@@ -101,8 +90,7 @@ class osmExtraction(object):
         '''
         baseCommand = r"{osmCommand} --read-pbf {inPbf} --tf accept-ways building=*".format(
             osmCommand = self.osmosisCommand,
-            inPbf = inPbf, 
-            outPbf = outFile)
+            inPbf = inPbf)
         if len(bounds) > 0:
             baseCommand = "{baseCommand} --bounding-box top={top} left={left} bottom={bottom} right={right}".format(
                 baseCommand=baseCommand,
@@ -173,8 +161,7 @@ class osmExtraction(object):
         baseCommand = r"{osmCmd} --read-pbf {inPbf} --tf accept-ways highway={highwayCommand} --used-node".format(
             osmCmd = self.osmosisCommand, 
             inPbf=inPbf, 
-            highwayCommand=allCommands, 
-            outPbf=outOSM)
+            highwayCommand=allCommands)
         
         if len(bounds) > 0:
             baseCommand = "{baseCommand} --bounding-box top={top} left={left} bottom={bottom} right={right}".format(
@@ -195,69 +182,7 @@ class osmExtraction(object):
             subprocess.call([self.tempFile], shell=True)
         
 
-#grid = gpd.read_file(r"Q:\AFRICA\COD\Projects\Shohei_Poverty_Kinshasa\ADMIN\PSUs\bati_ilot_quartier.shp")
-#outFolder = r"Q:\AFRICA\COD\Projects\Shohei_Poverty_Kinshasa\ADMIN"
-def downloadBaseData(grid, outFolder, amenities=True):
-    '''Download OSM based data using OSMNX - roads, schools, hospitals, and churches.
-    
-    INPUT
-    grid [geopandas dataFrame] - area to download in
-    outFolder [string] - place to write output
-    RETURNS
-    dictionary of [geopandas]
-    '''
-    toReturn = {}
-    roadsFile = os.path.join(outFolder, "OSM_Roads.shp")
-    if not os.path.exists(roadsFile):
-        bbox = box(grid.bounds.minx.min(), grid.bounds.miny.min(), grid.bounds.maxx.max(), grid.bounds.maxy.max())
-        #Download road network
-        G = ox.graph_from_polygon(bbox, network_type='drive_service')
-        roads = gn.edge_gdf_from_graph(G)
-        roads['highway'] = roads.highway.astype(str)
-        roads['OSMLR'] = roads.highway.map(OSMLR_Classes)
-        roads['oneway'] = roads.oneway.astype(int)   
-        '''
-        for badKeys in ['access', 'bridge','junction', 'lanes','oneway', 'osmid', 'ref', 'service','tunnel','width','stnode','endnode','name']:
-            try:
-                roads = roads.drop([badKeys],axis=1)
-            except:
-                print("Could not drop %s" % badKeys)
-        '''
-        try:        
-            roads.to_file(roadsFile)
-        except:
-            print("Could not write output")
-    else:
-        roads = pd.read_file
-    toReturn['Roads'] = roads
-        
-    if amenities:    
-        #Download Schools
-        schools = OSMNX_POIs.AmenityObject('Health', bbox, ['clinic','pharmacy','hospital','health'], "C:/Temp")
-        schools = schools.GenerateOSMPOIs()
-        schools = schools.RemoveDupes(0.005, roads.crs)
-        schools = schools.prepForMA()
-        schools.to_csv(os.path.join(outFolder, "OSM_Health.csv"), encoding='utf-8')
-        toReturn['Schools'] = schools
-        
-        #Download Hospitals
-        health = OSMNX_POIs.AmenityObject('Education', bbox, ['school','university','secondary school', 'kindergarten', 'college'], "C:/Temp")
-        health = health.GenerateOSMPOIs()
-        health = health.RemoveDupes(0.005, roads.crs)
-        health = health.prepForMA()
-        health.to_csv(os.path.join(outFolder, "OSM_Schools.csv"), encoding='utf-8')  
-        toReturn['Health'] = health
-        
-        #Download Churches
-        placeOfWorship = OSMNX_POIs.AmenityObject('Churches', bbox, ['place_of_worship'], "C:/Temp")
-        placeOfWorship = placeOfWorship.GenerateOSMPOIs()
-        placeOfWorship = placeOfWorship.RemoveDupes(0.005, roads.crs)
-        placeOfWorship = placeOfWorship.prepForMA()
-        placeOfWorship.to_csv(os.path.join(outFolder, "OSM_Churches.csv"), encoding='utf-8') 
-        toReturn['placeOfWorship'] = placeOfWorship
-        
-    return(toReturn)
-    
+   
 def summarizeOSM(grid, verbose=True, roadsOnly=False):
     ''' Summarizes OSM road length within each feature in the input grid
     
@@ -325,7 +250,8 @@ def convertOSMPBF_DataFrame(inOSM, layer):
     RETURNS
     [geopandas data frame]
     '''
-    import ogr, geojson, json
+    import geojson, json
+    from osgeo import ogr
     from shapely.geometry import shape
     
     driver=ogr.GetDriverByName('OSM')
@@ -352,14 +278,13 @@ def convertOSMPBF_DataFrame(inOSM, layer):
     
     allFeats = [loadOSMjson(feat.ExportToJson(as_object=True)) for feat in features]
     inR = pd.DataFrame(allFeats)
-    inR = gpd.GeoDataFrame(inR, geometry='geometry')
-    inR.crs = {'init': 'epsg:4326'}
+    inR = gpd.GeoDataFrame(inR, geometry='geometry', crs=4326)    
     try:
         inR = misc.project_UTM(inR)
     except:
-        inR = inR.to_crs({'init':'epsg:3857'})
+        inR = inR.to_crs(3857)
     inR['Length'] = inR['geometry'].apply(lambda x: x.length)
-    inR = inR.to_crs({'init':'epsg:4326'})
+    inR = inR.to_crs(4326)
     return (inR)
     
 if __name__ == "__main__":
