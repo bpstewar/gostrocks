@@ -14,6 +14,60 @@ from dataMisc import aws_search_ntl
 from misc import tPrint
 import rasterMisc as rMisc
 
+def read_raster_box(curRaster, geometry, bandNum=1):
+    # get pixel coordinates of the geometry's bounding box
+    ul = curRaster.index(*geometry.bounds[0:2])
+    lr = curRaster.index(*geometry.bounds[2:4])
+    # read the subset of the data into a numpy array
+    window = ((float(lr[0]), float(ul[0]+1)), (float(ul[1]), float(lr[1]+1)))
+    data = curRaster.read(bandNum, window=window)
+    return(data)
+
+def calc_annual(df, extent, agg_method="MEAN"): 
+    """ Combine monthly nighttime lights images into an annual composite
+
+    :param df: data frame of images with three columns: YEAR, MONTH, PATH
+    :type df: pandas.DataFrame
+    :param extent: area to extract imagery from
+    :type extent: shapely.Polygon
+    """
+    all_layers = df['PATH'].apply(lambda x: read_raster_box(rasterio.open(x), extent))
+    all_vals = np.dstack(all_layers)
+    if agg_method == "MEAN":
+        final_vals = np.nanmean(all_vals, axis=2)
+    
+    return(final_vals)
+    
+def generate_annual_composites(aoi, agg_method="MEAN", sel_files=[], out_folder=''):
+    """_summary_
+
+    :param aoi: geopandas polygonal dataframe to use for clip clip extent based on crop param
+    :type aoi: geopandas.GeoDataFrame
+    :param method: How to aggregate monthly nighttime lights layers into annual layers, defaults to MEAN
+    :type method: str, optional
+    :param sel_files: list of ntl files to process, defaults to [], which will use gostrocks.dataMisc.aws_search_ntl to find all variables
+    :type sel_files: list, optional
+    """
+    if len(sel_files) == 0:
+        sel_files = aws_search_ntl()
+    yr_month = [x.split("_")[1] for x in sel_files]
+    yr = [x[:4] for x in yr_month]
+    information = pd.DataFrame([yr,yr_month,sel_files], index=['YEAR','MONTH','PATH']).transpose()
+    annual_vals = information.groupby('YEAR').apply(lambda x: calc_annual(x, aoi))
+    
+    # Write the files to output 
+    if out_folder != '':
+        if not os.path.exists(out_folder):
+            os.makedirs(out_folder)
+        out_meta = rasterio.open(information['PATH'].iloc[0]).profile.copy()
+        for label, res in annual_vals.items():
+            out_meta.update(width=res.shape[0], height=res.shape[1], 
+                        transform=rasterio.transform.from_bounds(*aoi.bounds, res.shape[0], res.shape[1]))
+            out_file = os.path.join(out_folder, f'VIIRS_{label}_annual.tif')
+            with rasterio.open(out_file, 'w', **out_meta) as out_r:
+                out_r.write_band(1, res)
+    return(annual_vals)
+
 def map_viirs(cur_file, out_file='', class_bins = [-10,0.5,1,2,3,5,10,15,20,30,40,50], text_x=0, text_y=5, dpi=100):
     """Map VIIRS nighttime lights imagery, optionally create output image
 

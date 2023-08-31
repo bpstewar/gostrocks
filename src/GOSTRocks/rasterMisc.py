@@ -44,11 +44,15 @@ def create_rasterio_inmemory(src, curData):
         with memFile.open() as dataset:
             yield dataset
                 
-def vectorize_raster(inR):# TODO out_file='', smooth=False, smooth_window=3, bad_vals=None):
+def vectorize_raster(inR, bad_vals=[]):# TODO out_file='', smooth=False, smooth_window=3, bad_vals=None):
     ''' convert input raster data to a geodatframe
     
     :param inR: input raster data to vectorize
     :type inR: rasterio.datasetReader 
+    :param bad_vals: list of values to ignore in conversion
+    :type bad_vals: list of int
+    :returns: geopandas data frame of [idx, value (from raster), and geometry]
+    :rtype: geopandas.GeoDataFrame
     '''
     
     data = inR.read()
@@ -58,9 +62,10 @@ def vectorize_raster(inR):# TODO out_file='', smooth=False, smooth_window=3, bad
     idx = 0
     all_vals = []
     for cShape, value in features.shapes(data, transform=inR.transform):
-        all_vals.append([idx, value, shape(cShape)])
-        # shape(geojson.loads(json.dumps(cShape)))
-        idx += 1
+        if not value in bad_vals:
+            all_vals.append([idx, value, shape(cShape)])
+            # shape(geojson.loads(json.dumps(cShape)))
+            idx += 1
         
     return(gpd.GeoDataFrame(all_vals, columns=['idx', 'value', 'geometry'], geometry='geometry', crs=inR.crs))
             
