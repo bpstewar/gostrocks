@@ -37,10 +37,17 @@ def static_map_vector(v_data, map_column, colormap="Reds", edgecolor='darker', r
     
     if v_data.crs.to_epsg() != 3857:
         v_data = v_data.to_crs(3857)
-    # classify the data into categories
-    v_data['tomap'] = pd.cut(v_data[map_column], 6, labels=[0,1,2,3,4,5])
-    if thresh:
-        v_data['tomap'] = pd.cut(v_data[map_column], thresh, labels=list(range(0, len(thresh)-1)))
+    # classify the data into categories if threshold is defined
+    try:             
+        if thresh:
+            v_data['tomap'] = pd.cut(v_data[map_column], thresh, labels=list(range(0, len(thresh)-1)))
+        else:
+            v_data['tomap'] = pd.cut(v_data[map_column], 6, labels=[0,1,2,3,4,5])        
+    except:
+        print("Error mapping specified column, defaulting to index")
+        map_column = 'fake_index'
+        v_data[map_column] = list(v_data.index)
+        v_data['tomap'] = pd.cut(v_data[map_column], 6, labels=[0,1,2,3,4,5])
     fig, ax = plt.subplots(figsize=figsize)
     cm = plt.cm.get_cmap(colormap)
     if reverse_colormap:

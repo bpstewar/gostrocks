@@ -11,7 +11,8 @@ from affine import Affine
 from rasterio import features
 from rasterio.mask import mask
 from rasterio.features import rasterize, MergeAlg
-from rasterio.warp import reproject, Resampling
+from rasterio.warp import reproject, Resampling, calculate_default_transform
+from rasterio.merge import merge
 from rasterio.io import MemoryFile
 from contextlib import contextmanager
 
@@ -23,6 +24,38 @@ if not curPath in sys.path:
     sys.path.append(curPath)
 
 from misc import tPrint
+
+def merge_rasters(in_rasters, merge_method='first', dtype='', out_file='', boolean_gt_0=False):
+    """ Merge a list of rasters into a single raster file
+
+    Args:
+        in_rasters (list of rasters): List of rasters to process as string paths
+        merge_method (str, optional): merge method. Defaults to 'first'.
+        dtype (str, optional): dtype to convert final raster to. Defaults to '', which maintains input raster type
+        out_file (str, optional): Path to create output raster. Defaults to '', which creates no raster
+        boolean_gt_0 (str, optional): If true, converts merged result to binary 0, 1 of values greater than 0, Defaults to False
+    """
+
+    opened_tiffs = [rasterio.open(x) for x in in_rasters]
+    merged, out_transform = merge(opened_tiffs, method=merge_method)
+    if boolean_gt_0:
+        merged = ((merged > 0) * 1)
+        dtype = 'uint8'
+    if dtype != '':
+        merged = merged.astype(dtype)
+
+    # Create a new raster file with the merged data
+    metadata = opened_tiffs[0].meta.copy()
+    metadata.update(
+        {"height":merged.shape[1],
+        "width":merged.shape[2],
+        "transform":out_transform,
+        'dtype':'uint8'}
+    )
+    if out_file != '':
+        with rasterio.open(out_file, 'w', **metadata) as dst:
+            dst.write(merged)
+    return(merged, metadata)
 
 @contextmanager
 def create_rasterio_inmemory(src, curData):
@@ -69,12 +102,43 @@ def vectorize_raster(inR, bad_vals=[]):# TODO out_file='', smooth=False, smooth_
         
     return(gpd.GeoDataFrame(all_vals, columns=['idx', 'value', 'geometry'], geometry='geometry', crs=inR.crs))
             
+def project_raster(srcRst, dstCrs, output_raster=''):
+    """ project raster to destination crs
 
-""" TODO
-def project_raster(inR, crs):
-    ''' 
-    '''
-"""            
+    Args:
+        srcRst (_type_): _description_
+        dstCrs (_type_): _description_
+        output_raster (_type_): _description_
+    """
+    transform, width, height = calculate_default_transform(srcRst.crs, dstCrs, srcRst.width, srcRst.height, *srcRst.bounds)
+    kwargs = srcRst.meta.copy()
+    kwargs.update({
+            'crs': dstCrs,
+            'transform': transform,
+            'width': width,
+            'height': height
+        })
+    
+    #open destination raster
+    dstRst = np.zeros([kwargs['count'], width, height], kwargs['dtype'])
+
+    #reproject and save raster band data
+    for i in range(1, srcRst.count + 1):
+        reproject(
+            source=rasterio.band(srcRst, i),
+            destination=dstRst,
+            #src_transform=srcRst.transform,
+            src_crs=srcRst.crs,
+            #dst_transform=transform,
+            dst_crs=dstCrs,
+            resampling=Resampling.nearest)
+    
+    if output_raster != '':
+        with rasterio.open(output_raster, 'w', *kwargs) as out_raster:
+            out_raster.write(dstRst)
+
+    return([dstRst, kwargs])
+         
 def clipRaster(inR, inD, outFile='', crop=True):
     ''' Clip input raster
     
@@ -387,7 +451,7 @@ def zonalStats(inShp, inRaster, bandNum=1, mask_A = None, reProj = False, minVal
                 if rastType == 'C':
                     if len(unqVals) > 0:             
                         masked_unq = np.unique(masked_data, return_counts=True)
-                        xx = dict(list(zip(masked_unq[0], masked_unq[1]))[:-1])
+                        xx = dict([x for x in list(zip(masked_unq[0], masked_unq[1])) if x[0] != 'masked'])
                         results = [xx.get(i, 0) for i in unqVals]
                     else:
                         results = np.unique(masked_data, return_counts=True)
