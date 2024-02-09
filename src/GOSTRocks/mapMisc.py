@@ -7,8 +7,9 @@ import matplotlib.patches as mpatches
 
 from matplotlib.patches import Patch
 
-def static_map_vector(v_data, map_column, colormap="Reds", edgecolor='darker', reverse_colormap=False, thresh=None, 
-            legend_loc="upper right", figsize=(10,10), out_file=''):
+def static_map_vector(v_data, map_column, colormap="Reds", edgecolor='darker', 
+                      reverse_colormap=False, thresh=None, 
+                      legend_loc="upper right", figsize=(10,10), out_file='', set_title=True):
     """Simple plot of vector data; most arguments expect
 
     :param v_data: input geopandas dataset to map
@@ -76,9 +77,16 @@ def static_map_vector(v_data, map_column, colormap="Reds", edgecolor='darker', r
                 cLabel = 'LABEL'
             cur_patch = mpatches.Patch(color=color, label=cLabel)
             all_labels.append(cur_patch)
-    ctx.add_basemap(ax, source=ctx.providers.Stamen.TonerBackground) #zorder=-10, 'EPSG:4326'
+    try:
+        ctx.add_basemap(ax, source=ctx.providers.Stamen.TonerBackground) #zorder=-10, 'EPSG:4326'
+    except:
+        print("Error adding basemap")
     ax.legend(handles=all_labels, loc=legend_loc)
     ax = ax.set_axis_off()
+    
+    if set_title:
+        plt.title(map_column)
+
     if out_file != '':
         plt.savefig(out_file, dpi=300, bbox_inches='tight')
     
