@@ -1,7 +1,20 @@
-# local package
--e .
-
-# external requirements
+rasterio
+geopandas
+pandas
+numexpr > 2.6.8
+numpy
+pyproj
+gdal
+seaborn
+boto3
+botocore
+contextily
+matplotlib
+tqdm
+xarray
+osmnx
+affine
+PyOpenSSL >= 23.2  
 click
 Sphinx
 coverage
